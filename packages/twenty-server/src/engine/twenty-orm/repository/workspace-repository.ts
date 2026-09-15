@@ -17,6 +17,12 @@ import {
   UpdateResult,
 } from 'typeorm';
 
+// minidauth: seal selected personal fields before they reach Postgres, open them on read.
+import {
+  openWorkspaceRecords,
+  sealWorkspaceRecords,
+} from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
+
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
@@ -257,6 +263,8 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       );
     }
 
+    await openWorkspaceRecords(this.options.tableShape.nameSingular, records);
+
     return records as unknown as TEntity[];
   }
 
@@ -300,6 +308,10 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
         splitFindOptionsOrder(this.options.tableShape, options.order)
           .orderByRelationFieldName,
       );
+    }
+
+    if (isDefined(record)) {
+      await openWorkspaceRecords(this.options.tableShape.nameSingular, [record]);
     }
 
     return record as unknown as TEntity | null;
@@ -589,6 +601,8 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       ? entityOrEntities
       : [entityOrEntities];
 
+    await sealWorkspaceRecords(this.options.tableShape.nameSingular, records);
+
     const { identifiers, generatedMaps, raw } = await this.runInsert({
       records,
       columnsToReturn: this.options.shouldBypassPermissionChecks
@@ -610,6 +624,10 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     criteria: MutationCriteria,
     partialEntity: Partial<ObjectRecord>,
   ): Promise<UpdateResult> {
+    await sealWorkspaceRecords(this.options.tableShape.nameSingular, [
+      partialEntity,
+    ]);
+
     const records = await this.runMutation({
       selectQueryBuilder: applyMutationCriteriaToQueryBuilder(
         this.createQueryBuilder(),
@@ -747,6 +765,8 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     if (entities.length === 0) {
       return [];
     }
+
+    await sealWorkspaceRecords(this.options.tableShape.nameSingular, entities);
 
     return this.runAtomically(async (repository) => {
       const existingIds = await repository.findExistingIds(
