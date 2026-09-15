@@ -17,11 +17,9 @@ import {
   UpdateResult,
 } from 'typeorm';
 
-// minidauth: seal selected personal fields before they reach Postgres, open them on read.
-import {
-  openWorkspaceRecords,
-  sealWorkspaceRecords,
-} from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
+// minidauth: seal selected personal fields before they reach Postgres (opened on read in
+// CommonResultGettersService).
+import { sealWorkspaceRecords } from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
 
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
@@ -263,8 +261,6 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       );
     }
 
-    await openWorkspaceRecords(this.options.tableShape.nameSingular, records);
-
     return records as unknown as TEntity[];
   }
 
@@ -308,10 +304,6 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
         splitFindOptionsOrder(this.options.tableShape, options.order)
           .orderByRelationFieldName,
       );
-    }
-
-    if (isDefined(record)) {
-      await openWorkspaceRecords(this.options.tableShape.nameSingular, [record]);
     }
 
     return record as unknown as TEntity | null;
@@ -601,8 +593,6 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       ? entityOrEntities
       : [entityOrEntities];
 
-    await sealWorkspaceRecords(this.options.tableShape.nameSingular, records);
-
     const { identifiers, generatedMaps, raw } = await this.runInsert({
       records,
       columnsToReturn: this.options.shouldBypassPermissionChecks
@@ -624,10 +614,6 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     criteria: MutationCriteria,
     partialEntity: Partial<ObjectRecord>,
   ): Promise<UpdateResult> {
-    await sealWorkspaceRecords(this.options.tableShape.nameSingular, [
-      partialEntity,
-    ]);
-
     const records = await this.runMutation({
       selectQueryBuilder: applyMutationCriteriaToQueryBuilder(
         this.createQueryBuilder(),
@@ -765,8 +751,6 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     if (entities.length === 0) {
       return [];
     }
-
-    await sealWorkspaceRecords(this.options.tableShape.nameSingular, entities);
 
     return this.runAtomically(async (repository) => {
       const existingIds = await repository.findExistingIds(
@@ -949,6 +933,9 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       return { identifiers: [], generatedMaps: [], raw: [] };
     }
 
+    // minidauth: seal personal fields on every insert (API and internal).
+    await sealWorkspaceRecords(this.options.tableShape.nameSingular, records);
+
     const filesFieldDiff =
       this.filesFieldSync.computeFilesFieldDiffBeforeInsert(
         records,
@@ -1032,6 +1019,12 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     });
     const writableInputs = inputs.filter((input) =>
       writableRecordIds.has(input.id),
+    );
+
+    // minidauth: seal personal fields on every batch update (save()/updateMany).
+    await sealWorkspaceRecords(
+      this.options.tableShape.nameSingular,
+      writableInputs.map((input) => input.data),
     );
 
     const recordsBefore: ObjectRecord[] = [];
@@ -1377,6 +1370,11 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     columnsToReturn: string[];
     data?: Partial<ObjectRecord>;
   }): Promise<ObjectRecord[]> {
+    // minidauth: seal personal fields on every update mutation (API and internal).
+    if (kind !== 'delete' && isDefined(data)) {
+      await sealWorkspaceRecords(this.options.tableShape.nameSingular, [data]);
+    }
+
     if (!rowLevelPermissionsApplied) {
       this.applyRowLevelPermissionPredicates(selectQueryBuilder, kind);
     }

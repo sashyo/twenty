@@ -12,16 +12,18 @@ this one — ever holds a key that can read it back.
 
 ## What changed
 
-One small util, plus five one-line hooks in the workspace ORM. That's the whole footprint.
+One small util, plus a few one-line hooks at the ORM's shared read/write choke points. That's the whole
+footprint.
 
 | | |
 |---|---|
 | `minidauth-seal.util.ts` | Seals the configured personal fields of the configured objects on write, opens them on read. Talks only to the **minidauth-seal sidecar**; holds no key and no Tide credential. |
-| `repository/workspace-repository.ts` | Five call sites: seal in `insert` / `update` / `save`, open in `find` / `findOne`. Guarded by an env flag. |
+| `repository/workspace-repository.ts` | **Seal** on write in the three low-level executors — `runInsert`, `runMutation`, `runBatchUpdate` — which both the GraphQL/REST API (via the common query runners) and internal `save`/`insert`/`update` funnel through. |
+| `api/common/common-result-getters/common-result-getters.service.ts` | **Open** on read in `processRecord`, the one place the API shapes every record before returning it. |
 
-Because the hooks sit in `WorkspaceRepository` — the choke point every workspace object read and write goes
-through — the seal covers the GraphQL API, the REST API, and the record table in the UI at once, with no
-change to the object model, resolvers, or front end.
+The API and internal services take different paths at the top but converge on these executors and this
+result-getter, so hooking them covers the GraphQL API, the REST API, and the record table in the UI at once,
+with no change to the object model, resolvers, or front end.
 
 Off by default: with `MINIDAUTH_SEAL_URL` unset, every path is a no-op and Twenty behaves exactly like
 upstream. Set it to the sidecar URL to turn it on.
@@ -66,7 +68,7 @@ than almost anywhere:
   granted through minidauth. Revoke it and every contact goes unreadable across the whole CRM instantly, with
   no deploy and no change to Twenty — exactly what you want for offboarding or incident response. Access is
   *governed*, not asserted by whoever holds the server.
-- **Transparent and reversible.** One util, five hooks, off by default. Sales reps and the UI see normal
+- **Transparent and reversible.** One util, a handful of hooks, off by default. Sales reps and the UI see normal
   contacts; the database and a stolen backup see ciphertext.
 
 The trust that used to sit in "whoever holds the CRM database and its key" is split across an independent
