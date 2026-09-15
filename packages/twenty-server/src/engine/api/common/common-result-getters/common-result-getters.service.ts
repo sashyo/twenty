@@ -15,6 +15,8 @@ import { RichTextFieldQueryResultGetterHandler } from 'src/engine/api/common/com
 import { WorkspaceMemberQueryResultGetterHandler } from 'src/engine/api/graphql/workspace-query-runner/factories/query-result-getters/handlers/workspace-member-query-result-getter.handler';
 import { getFlatFieldsFromFlatObjectMetadata } from 'src/engine/api/graphql/workspace-schema-builder/utils/get-flat-fields-for-flat-object-metadata.util';
 import { FileUrlService } from 'src/engine/core-modules/file/file-url/file-url.service';
+// minidauth: open sealed personal fields on API reads.
+import { openWorkspaceRecords } from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { findFlatEntityByIdInFlatEntityMapsOrThrow } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps-or-throw.util';
 import { type OrmFlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/orm-flat-field-metadata.type';
@@ -192,10 +194,17 @@ export class CommonResultGettersService {
         recordFieldMetadataList,
       );
 
-    return {
+    const processedRecord = {
       ...objectRecordProcessedWithoutRelationFields,
       ...relationFieldsProcessedMap,
     };
+
+    // minidauth: open sealed personal fields on the read path (API results).
+    await openWorkspaceRecords(flatObjectMetadata.nameSingular, [
+      processedRecord,
+    ]);
+
+    return processedRecord;
   }
 
   private getOrBuildFieldMetadataByName(

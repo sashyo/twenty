@@ -17,8 +17,10 @@
  * with the cohort and AES the payload under it locally (envelope encryption) - one cohort op per
  * record rather than per field.
  */
-const SEAL_URL = process.env.MINIDAUTH_SEAL_URL;
-export const MINIDAUTH_SEAL_ENABLED = Boolean(SEAL_URL);
+// Read lazily, not at import time: @nestjs/config loads .env into process.env during bootstrap,
+// after this module is first imported, so capturing it at module top-level would see undefined.
+const sealUrl = (): string | undefined => process.env.MINIDAUTH_SEAL_URL;
+export const isMinidauthSealEnabled = (): boolean => Boolean(sealUrl());
 
 // object nameSingular -> the record subpaths whose string values are sealed. Composite fields
 // (emails, phones, name) are nested objects on the record at this layer, so we address their leaves
@@ -39,7 +41,7 @@ const MARKER = 'ms1:'; // a sealed string column is "ms1:<ciphertextB64>"
 const isSealed = (v: unknown): v is string => typeof v === 'string' && v.startsWith(MARKER);
 
 async function sidecar(path: string, body: unknown): Promise<any> {
-  const r = await fetch(SEAL_URL + path, {
+  const r = await fetch(sealUrl() + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -76,7 +78,7 @@ function collectLeaves(objectName: string, record: any): Leaf[] {
 
 /** Seal the configured personal fields of these records in place (write path). */
 export async function sealWorkspaceRecords(objectName: string, records: any[]): Promise<void> {
-  if (!MINIDAUTH_SEAL_ENABLED || !SEALED_FIELDS[objectName]) return;
+  if (!isMinidauthSealEnabled() || !SEALED_FIELDS[objectName]) return;
   for (const record of records) {
     const leaves = collectLeaves(objectName, record).filter((l) => {
       const v = l.get();
@@ -95,7 +97,7 @@ let openWarned = false;
  *  allowed (role not granted, sidecar down), the field is left sealed rather than crashing the read -
  *  ciphertext is the safe failure. */
 export async function openWorkspaceRecords(objectName: string, records: any[]): Promise<void> {
-  if (!MINIDAUTH_SEAL_ENABLED || !SEALED_FIELDS[objectName]) return;
+  if (!isMinidauthSealEnabled() || !SEALED_FIELDS[objectName]) return;
   for (const record of records) {
     const leaves = collectLeaves(objectName, record).filter((l) => isSealed(l.get()));
     if (leaves.length === 0) continue;
