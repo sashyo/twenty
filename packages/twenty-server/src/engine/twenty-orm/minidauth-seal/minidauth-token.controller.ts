@@ -21,11 +21,15 @@ export class MinidauthTokenController {
   ): { userToken: string; sidecar: string; enabled: boolean } {
     const ctx = getWorkspaceAuthContext();
     const uid = ctx.type === 'user' ? ctx.user.id : undefined;
+    // Only ever issue a session-BOUND token: without the browser's session key we would hand out an
+    // unbound token that a separate client could rebind to its own key, so issue nothing instead.
+    const canMint =
+      Boolean(uid) && typeof sessionKey === 'string' && sessionKey.length > 0;
 
     return {
-      enabled: Boolean(process.env.MINIDAUTH_SEAL_URL) && Boolean(uid),
+      enabled: Boolean(process.env.MINIDAUTH_SEAL_URL) && canMint,
       sidecar: process.env.MINIDAUTH_SEAL_URL ?? '',
-      userToken: uid ? mintReaderToken(uid, sessionKey) : '',
+      userToken: canMint ? mintReaderToken(uid as string, sessionKey) : '',
     };
   }
 }
