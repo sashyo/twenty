@@ -102,7 +102,13 @@ const SEALED_FIELDS: Record<string, string[]> = {
     'whatsapp.primaryPhoneNumber',
     'whatsapp.additionalPhones[].number',
     'linkedinLink.primaryLinkUrl',
+    // A LINKS composite also carries secondary links; seal their URLs and labels too, not just the
+    // primary, so an alternate profile URL is not left in the clear next to a sealed primary.
+    'linkedinLink.secondaryLinks[].url',
+    'linkedinLink.secondaryLinks[].label',
     'xLink.primaryLinkUrl',
+    'xLink.secondaryLinks[].url',
+    'xLink.secondaryLinks[].label',
     'jobTitle',
     'city',
     'intro',
@@ -110,6 +116,9 @@ const SEALED_FIELDS: Record<string, string[]> = {
   // A second object, to show cross-object coverage. The body is a rich-text composite with a
   // Blocknote-JSON and a Markdown rendering; seal both so the note content is not left in the clear.
   note: ['title', 'bodyV2.blocknote', 'bodyV2.markdown'],
+  // Tasks carry the same free-text shape as notes (a title and a rich-text body); seal both so task
+  // content is protected exactly like note content.
+  task: ['title', 'bodyV2.blocknote', 'bodyV2.markdown'],
 };
 
 const MARKER = 'ms1:'; // a sealed string column is "ms1:<ciphertextB64>"
