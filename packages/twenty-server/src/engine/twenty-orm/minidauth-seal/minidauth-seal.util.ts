@@ -65,7 +65,10 @@ export function mintReaderToken(uid: string, cnf?: string): string {
   const now = Math.floor(Date.now() / 1000);
   // cnf binds the token to the caller's session key, so a captured token cannot be used to mint a
   // doken for a different key. Omitted only if the client did not present a session key.
-  const claims: Record<string, unknown> = { sub: uid, iat: now, exp: now + 30 };
+  // Short-lived: the browser trades it for a doken immediately, so it only needs to survive one round
+  // trip. Keeping it brief shrinks how long a token captured before logout can still mint new dokens
+  // (its real window is this TTL plus minidauth's verification skew).
+  const claims: Record<string, unknown> = { sub: uid, iat: now, exp: now + 15 };
   if (cnf) claims.cnf = cnf;
   const payloadJson = JSON.stringify(claims);
   const key = readerSigningKey();
