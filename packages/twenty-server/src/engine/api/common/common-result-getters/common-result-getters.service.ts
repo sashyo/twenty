@@ -17,6 +17,20 @@ import { getFlatFieldsFromFlatObjectMetadata } from 'src/engine/api/graphql/work
 import { FileUrlService } from 'src/engine/core-modules/file/file-url/file-url.service';
 // minidauth: open sealed personal fields on API reads.
 import { openWorkspaceRecords } from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
+import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/workspace-auth-context.storage';
+
+// The verified reader for the seal open path: the authenticated user from the request's auth context,
+// never anything client-supplied. Undefined for non-user contexts (system jobs, API keys) or when no
+// context is set, in which case sealed fields stay sealed (fail closed).
+const currentReaderUid = (): string | undefined => {
+  try {
+    const ctx = getWorkspaceAuthContext();
+
+    return ctx.type === 'user' ? ctx.user.id : undefined;
+  } catch {
+    return undefined;
+  }
+};
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { findFlatEntityByIdInFlatEntityMapsOrThrow } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps-or-throw.util';
 import { type OrmFlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/orm-flat-field-metadata.type';
@@ -199,10 +213,13 @@ export class CommonResultGettersService {
       ...relationFieldsProcessedMap,
     };
 
-    // minidauth: open sealed personal fields on the read path (API results).
-    await openWorkspaceRecords(flatObjectMetadata.nameSingular, [
-      processedRecord,
-    ]);
+    // minidauth: open sealed personal fields on the read path (API results), delegated to the
+    // authenticated reader. No verified reader -> stays sealed.
+    await openWorkspaceRecords(
+      flatObjectMetadata.nameSingular,
+      [processedRecord],
+      currentReaderUid(),
+    );
 
     return processedRecord;
   }
