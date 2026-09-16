@@ -145,6 +145,12 @@ type Leaf = { get: () => unknown; set: (v: unknown) => void };
 function leavesForPath(node: any, path: string): Leaf[] {
   return walkPath(node, path.split('.'));
 }
+// One parsed array shared across every sealed path that targets the same JSON-string list field.
+// Without this, two paths into the same list (e.g. secondaryLinks[].url and secondaryLinks[].label)
+// would each JSON.parse the string into a SEPARATE array; their writeBacks then re-serialize
+// different copies and the last one wins, silently dropping the other field's sealing. Keyed by the
+// parent node (weakly, so it is per-record and garbage-collected), then by the list field name.
+const jsonBackedArrays = new WeakMap<object, Map<string, unknown[]>>();
 function walkPath(node: any, segs: string[]): Leaf[] {
   if (node == null || typeof node !== 'object' || segs.length === 0) return [];
   const seg = segs[0];
@@ -152,20 +158,32 @@ function walkPath(node: any, segs: string[]): Leaf[] {
   const isArray = seg.endsWith('[]');
   const key = isArray ? seg.slice(0, -2) : seg;
   if (isArray) {
-    // Composite list fields (additionalPhones, additionalEmails) arrive at this layer as a JSON
-    // STRING, not a parsed array. Parse it, seal inside, and write the re-serialized array back to the
-    // same field after each set so the stored column holds sealed values.
+    // Composite list fields (additionalPhones, additionalEmails, secondaryLinks) arrive at this layer
+    // as a JSON STRING, not a parsed array. Parse it ONCE (shared via jsonBackedArrays so multiple
+    // paths into the same list seal into the same array), seal inside, and write the re-serialized
+    // array back to the same field after each set so the stored column holds sealed values.
     let arr = node[key];
     let jsonBacked = false;
     if (typeof arr === 'string') {
-      try {
-        const parsed = JSON.parse(arr);
-        if (Array.isArray(parsed)) {
-          arr = parsed;
-          jsonBacked = true;
+      let cache = jsonBackedArrays.get(node);
+      if (cache?.has(key)) {
+        arr = cache.get(key)!;
+        jsonBacked = true;
+      } else {
+        try {
+          const parsed = JSON.parse(arr);
+          if (Array.isArray(parsed)) {
+            arr = parsed;
+            jsonBacked = true;
+            if (!cache) {
+              cache = new Map();
+              jsonBackedArrays.set(node, cache);
+            }
+            cache.set(key, arr);
+          }
+        } catch {
+          return [];
         }
-      } catch {
-        return [];
       }
     }
     if (!Array.isArray(arr)) return [];
@@ -198,10 +216,13 @@ function collectLeaves(objectName: string, record: any): Leaf[] {
 export async function sealWorkspaceRecords(objectName: string, records: any[]): Promise<void> {
   if (!isMinidauthSealEnabled() || !SEALED_FIELDS[objectName]) return;
   for (const record of records) {
-    // Seal every configured non-empty string. We do NOT skip values that already look sealed: a
-    // client can forge the "ms1:" prefix, so the sidecar decides what is genuine ciphertext (it
-    // returns those unchanged) and seals everything else. Trusting the prefix here would let a client
-    // store un-sealed plaintext in a sealed column.
+    // Seal every configured non-empty string, unconditionally. We do NOT skip values that already
+    // look sealed: only the cohort can verify a VVK signature, so neither this server nor the sidecar
+    // can tell a genuine sealed envelope from one a client shaped to look sealed but filled with
+    // plaintext. Sealing everything is what guarantees the invariant - a sealed column only ever holds
+    // a cohort-signed envelope. The cost is that a caller must send plaintext here, never re-feed a
+    // stored ciphertext (which would be double-sealed). Twenty holds to that: the browser decrypts
+    // sealed fields into the GraphQL response, so an edit is saved as plaintext, not as read ciphertext.
     const leaves = collectLeaves(objectName, record).filter((l) => {
       const v = l.get();
       return typeof v === 'string' && v.length > 0;
