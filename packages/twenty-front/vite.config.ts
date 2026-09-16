@@ -41,12 +41,16 @@ export default defineConfig(({ mode }) => {
     ? REACT_APP_SERVER_BASE_URL
     : 'http://localhost:3000';
 
-  const apiProxy = Object.fromEntries(
-    API_PROXY_PATHS.map((apiPath) => [
-      buildApiProxyMatcher(apiPath),
-      { target: apiProxyTarget },
-    ]),
-  );
+  const apiProxy = {
+    ...Object.fromEntries(
+      API_PROXY_PATHS.map((apiPath) => [
+        buildApiProxyMatcher(apiPath),
+        { target: apiProxyTarget },
+      ]),
+    ),
+    // minidauth: the client-side reveal fetches its per-session token from the server.
+    '/minidauth': { target: apiProxyTarget },
+  };
 
   const CHUNK_SIZE_WARNING_LIMIT = 1024 * 1024; // 1MB
   // Please don't increase this limit for main index chunk
@@ -84,6 +88,9 @@ export default defineConfig(({ mode }) => {
           searchForWorkspaceRoot(process.cwd()),
           '**/@blocknote/core/src/fonts/**',
         ],
+        // Never serve private keys or secrets through the dev file server (/@fs/). Vite denies
+        // .env and *.pem by default but not *.key, which is how a signing key in the tree leaked.
+        deny: ['**/.env', '**/.env.*', '**/*.key', '**/*.pem', '**/*.crt', '**/*.p12', '**/*.pfx'],
       },
     },
 

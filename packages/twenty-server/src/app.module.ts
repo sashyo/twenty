@@ -35,6 +35,7 @@ import { JwtModule } from 'src/engine/core-modules/jwt/jwt.module';
 import { UserSessionModule } from 'src/engine/core-modules/user-session/user-session.module';
 import { RestCoreMiddleware } from 'src/engine/middlewares/rest-core.middleware';
 import { TwentyOrmModule } from 'src/engine/twenty-orm/twenty-orm.module';
+import { MinidauthTokenController } from 'src/engine/twenty-orm/minidauth-seal/minidauth-token.controller';
 import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/workspace-cache-storage.module';
 import { UnhandledExceptionFilter } from 'src/filters/unhandled-exception.filter';
 import { ModulesModule } from 'src/modules/modules.module';
@@ -78,6 +79,7 @@ const MIGRATED_REST_METHODS = [
     I18nModule,
     ...AppModule.getConditionalModules(),
   ],
+  controllers: [MinidauthTokenController],
   providers: [
     {
       provide: APP_FILTER,
@@ -152,5 +154,13 @@ export class AppModule {
         )
         .forRoutes({ path: `${ApiPath.Rest}/*path`, method });
     }
+
+    // minidauth: hydrate the auth context so /minidauth/user-token knows the current user.
+    consumer
+      .apply(
+        GraphQLHydrateRequestFromTokenMiddleware,
+        WorkspaceAuthContextMiddleware,
+      )
+      .forRoutes({ path: 'minidauth/*path', method: RequestMethod.GET });
   }
 }

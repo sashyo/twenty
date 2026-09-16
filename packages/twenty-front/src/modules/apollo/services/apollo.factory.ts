@@ -1,4 +1,6 @@
 import { ApolloClient, ApolloLink, type ErrorLike } from '@apollo/client';
+
+import { minidauthDecryptLink } from '@/minidauth/minidauthDecryptLink';
 import {
   CombinedGraphQLErrors,
   ServerError,
@@ -279,6 +281,7 @@ export class ApolloFactory implements ApolloManager {
       // apollo-upload-client) reference their own @apollo/client ApolloLink type
       const links = [
         errorLink,
+        minidauthDecryptLink,
         authLink,
         ...(extraLinks || []),
         ...(isDebugMode ? [logger] : []),

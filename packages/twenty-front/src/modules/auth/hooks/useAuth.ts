@@ -33,6 +33,7 @@ import { returnToPathState } from '@/auth/states/returnToPathState';
 import { clearSessionLocalStorageKeys } from '@/auth/utils/clearSessionLocalStorageKeys';
 import { broadcastSignOutToOtherTabs } from '@/auth/utils/crossTabSignOut';
 import { clearSessionGeneration } from '@/auth/utils/clearSessionGeneration';
+import { resetMinidauthSession } from '@/minidauth/minidauthReveal';
 import { isValidReturnToPath } from '@/auth/utils/isValidReturnToPath';
 import { isNonEmptyString } from '@sniptt/guards';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
@@ -129,6 +130,9 @@ export const useAuth = () => {
     store.set(currentUserWorkspaceState.atom, null);
     clearSessionGeneration();
     clearSessionLocalStorageKeys();
+    // Drop the minidauth session key + doken so decryption stops on sign-out and a different account
+    // does not inherit this session.
+    resetMinidauthSession();
     setLastAuthenticateWorkspaceDomain(null);
     window.location.assign(AppPath.SignInUp);
   }, [store, setLastAuthenticateWorkspaceDomain]);
