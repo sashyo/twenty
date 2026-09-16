@@ -107,8 +107,9 @@ const SEALED_FIELDS: Record<string, string[]> = {
     'city',
     'intro',
   ],
-  // A second object, to show cross-object coverage. Note bodies/titles are free text, not list keys.
-  note: ['title'],
+  // A second object, to show cross-object coverage. The body is a rich-text composite with a
+  // Blocknote-JSON and a Markdown rendering; seal both so the note content is not left in the clear.
+  note: ['title', 'bodyV2.blocknote', 'bodyV2.markdown'],
 };
 
 const MARKER = 'ms1:'; // a sealed string column is "ms1:<ciphertextB64>"
