@@ -70,16 +70,30 @@ export function minidauthSessionId(sessionToken: string): string {
 }
 
 // Tell minidauth (via the sidecar) to revoke an app session on logout, so its reader tokens can no
-// longer mint dokens and its dokens are refused at once. Best-effort: logout must not fail if minidauth
-// is unreachable, and the short token lifetimes remain a backstop.
+// longer mint dokens and its dokens are refused at once. Retried a few times so a transient sidecar
+// hiccup does not silently leave a captured token usable for the rest of its short life - the ~50s
+// window a failed revoke would otherwise reopen (a reader token's remaining life plus a doken's). It
+// still never throws: logout must not fail if revocation is unreachable, and the short token TTLs are
+// the backstop. The revoke is a server-only call carrying MINIDAUTH_REVOKE_SECRET, so a browser (which
+// cannot hold the secret and always sends an Origin header) cannot revoke a session it does not own.
 export async function revokeMinidauthSession(sessionToken: string): Promise<void> {
   if (!isMinidauthSealEnabled() || !sessionToken) return;
-  try {
-    await sidecar('/proxy/revoke', { sid: minidauthSessionId(sessionToken) });
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn('[minidauth-seal] session revoke failed:', (e as Error).message);
+  const url = `${sealUrl()}/proxy/revoke`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const secret = process.env.MINIDAUTH_REVOKE_SECRET;
+  if (secret) headers['X-Minidauth-Revoke-Secret'] = secret;
+  const body = JSON.stringify({ sid: minidauthSessionId(sessionToken) });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers, body });
+      if (r.ok) return;
+    } catch {
+      // fall through to retry
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
   }
+  // eslint-disable-next-line no-console
+  console.warn('[minidauth-seal] session revoke did not confirm; relying on short token TTLs');
 }
 
 export function mintReaderToken(uid: string, cnf?: string, sid?: string): string {
