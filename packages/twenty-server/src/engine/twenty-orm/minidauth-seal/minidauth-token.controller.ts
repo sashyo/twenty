@@ -6,7 +6,10 @@ import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/wo
 import { UserSessionCookieService } from 'src/engine/core-modules/user-session/services/user-session-cookie.service';
 import { UserSessionService } from 'src/engine/core-modules/user-session/services/user-session.service';
 import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
-import { mintReaderToken } from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
+import {
+  minidauthSessionId,
+  mintReaderToken,
+} from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
 
 /**
  * Hands the authenticated browser what it needs to decrypt sealed fields itself: a short-lived token
@@ -41,7 +44,9 @@ export class MinidauthTokenController {
     // A live session must back this request. The guard is satisfied by a bare access-token JWT, which
     // survives logout until it expires; resolving the session cookie ties minting to state that
     // sign-out actually clears, so a retained token stops working the moment the user logs out.
-    const liveSessionUid = await this.resolveLiveSessionUid(request);
+    const sessionToken =
+      this.userSessionCookieService.extractSessionTokenFromRequest(request);
+    const liveSessionUid = await this.resolveLiveSessionUid(sessionToken);
 
     // Only ever issue a session-BOUND token: without the browser's session key we would hand out an
     // unbound token that a separate client could rebind to its own key, so issue nothing instead.
@@ -51,20 +56,21 @@ export class MinidauthTokenController {
       typeof sessionKey === 'string' &&
       sessionKey.length > 0;
 
+    // Tie the token to this app session (sid), so signing out revokes it in minidauth at once rather
+    // than waiting for its short lifetime to run out.
+    const sid = sessionToken ? minidauthSessionId(sessionToken) : undefined;
+
     return {
       enabled: Boolean(process.env.MINIDAUTH_SEAL_URL) && canMint,
       sidecar: process.env.MINIDAUTH_SEAL_URL ?? '',
-      userToken: canMint ? mintReaderToken(uid as string, sessionKey) : '',
+      userToken: canMint ? mintReaderToken(uid as string, sessionKey, sid) : '',
     };
   }
 
   /** The user id of the live session backing this request, or undefined if there is no live session. */
   private async resolveLiveSessionUid(
-    request: Request,
+    sessionToken: string | undefined,
   ): Promise<string | undefined> {
-    const sessionToken =
-      this.userSessionCookieService.extractSessionTokenFromRequest(request);
-
     if (!sessionToken) {
       return undefined;
     }

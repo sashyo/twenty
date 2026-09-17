@@ -22,7 +22,7 @@
  * the payload under it locally (envelope encryption), keeping sealed values addressable by a local
  * key while the cohort still governs who may unwrap it.
  */
-import { createHmac, createPrivateKey, sign as edSign, type KeyObject } from 'crypto';
+import { createHash, createHmac, createPrivateKey, sign as edSign, type KeyObject } from 'crypto';
 import { readFileSync } from 'fs';
 
 // Read lazily, not at import time: @nestjs/config loads .env into process.env during bootstrap,
@@ -61,7 +61,28 @@ const b64url = (b: Buffer | string): string =>
 // this token just carries that verified identity to the sidecar, which re-verifies the signature and
 // then decrypts as this uid. minidauth's quorum grant decides whether the uid may actually read. The
 // sidecar holds no reader identity of its own, so nothing decrypts without one of these.
-export function mintReaderToken(uid: string, cnf?: string): string {
+// A stable, server-derived id for an app session: the hash of its session token. Both the reader-token
+// mint and the logout revocation compute it the same way from the same token, and it never exposes the
+// token itself. Never derived from anything a browser supplies, so it cannot be used to revoke another
+// user's session.
+export function minidauthSessionId(sessionToken: string): string {
+  return createHash('sha256').update(sessionToken).digest('hex');
+}
+
+// Tell minidauth (via the sidecar) to revoke an app session on logout, so its reader tokens can no
+// longer mint dokens and its dokens are refused at once. Best-effort: logout must not fail if minidauth
+// is unreachable, and the short token lifetimes remain a backstop.
+export async function revokeMinidauthSession(sessionToken: string): Promise<void> {
+  if (!isMinidauthSealEnabled() || !sessionToken) return;
+  try {
+    await sidecar('/proxy/revoke', { sid: minidauthSessionId(sessionToken) });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[minidauth-seal] session revoke failed:', (e as Error).message);
+  }
+}
+
+export function mintReaderToken(uid: string, cnf?: string, sid?: string): string {
   const now = Math.floor(Date.now() / 1000);
   // cnf binds the token to the caller's session key, so a captured token cannot be used to mint a
   // doken for a different key. Omitted only if the client did not present a session key.
@@ -70,6 +91,8 @@ export function mintReaderToken(uid: string, cnf?: string): string {
   // (its real window is this TTL plus minidauth's verification skew).
   const claims: Record<string, unknown> = { sub: uid, iat: now, exp: now + 15 };
   if (cnf) claims.cnf = cnf;
+  // sid ties the token (and the doken minted from it) to this app session, so logout can revoke it.
+  if (sid) claims.sid = sid;
   const payloadJson = JSON.stringify(claims);
   const key = readerSigningKey();
   if (key) {

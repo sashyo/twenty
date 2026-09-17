@@ -97,6 +97,7 @@ import { SettingsPermissionGuard } from 'src/engine/guards/settings-permission.g
 import { UserAuthGuard } from 'src/engine/guards/user-auth.guard';
 import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
 import { PermissionsGraphqlApiExceptionFilter } from 'src/engine/metadata-modules/permissions/utils/permissions-graphql-api-exception.filter';
+import { revokeMinidauthSession } from 'src/engine/twenty-orm/minidauth-seal/minidauth-seal.util';
 import { getRequestBaseUrl } from 'src/utils/get-request-base-url.util';
 import { streamToBuffer } from 'src/utils/stream-to-buffer';
 
@@ -981,14 +982,18 @@ export class AuthResolver {
     @Context() context: { req: Request },
     @Args('refreshToken', { nullable: true }) refreshToken?: string,
   ): Promise<boolean> {
+    const sessionToken =
+      this.userSessionCookieService.extractSessionTokenFromRequest(context.req);
     try {
       await this.userSessionService.signOut({
-        sessionToken:
-          this.userSessionCookieService.extractSessionTokenFromRequest(
-            context.req,
-          ),
+        sessionToken,
         refreshToken,
       });
+      // minidauth: revoke this session so a reader token or doken captured before logout can no longer
+      // mint or decrypt. Best-effort - a failure here must not block sign-out.
+      if (sessionToken) {
+        await revokeMinidauthSession(sessionToken);
+      }
     } finally {
       // This mutation is public and SameSite=Lax keeps the cookie off cross-site
       // POSTs, so clearing unconditionally would let any site sign a visitor out.
