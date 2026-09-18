@@ -23,6 +23,41 @@
   <a href="https://github.com/sashyo/minidauth"><img alt="minidauth'd" src="https://img.shields.io/badge/minidauth%27d-sealed_at_rest-2ea44f?style=for-the-badge&logo=lock&logoColor=white"></a>
 </p>
 
+<!-- minidauth-run:start -->
+### Running it with minidauth
+
+Sealing is off until you point Twenty at a minidauth sidecar; unconfigured, it behaves exactly like upstream.
+
+1. **Bring up the backend.** In a checkout of [minidauth](https://github.com/sashyo/minidauth):
+
+   ```sh
+   cp operators.example.json operators.json
+   docker compose -f docker-compose.yml -f docker-compose.seal.yml up -d
+   # create a vendor key once (a licensed step; see that repo's docs/running.md)
+   ./bootstrap.sh
+   ```
+
+   This runs the sealing sidecar on `http://localhost:3021` and writes a signing key to `./keys/usertoken.key`. Full detail: minidauth's [docs/sealing.md](https://github.com/sashyo/minidauth/blob/main/docs/sealing.md).
+
+2. **Point Twenty at it.** Set these in its environment, then start Twenty as usual:
+
+   ```sh
+   MINIDAUTH_SEAL_URL=http://localhost:3021
+   MINIDAUTH_SEAL_SIGNING_KEY_FILE=/absolute/path/to/minidauth/keys/usertoken.key
+   # optional: MINIDAUTH_CLIENT_SIDE_OPEN=true decrypts in the browser, so the server never sees plaintext
+   ```
+
+   Now contact names, emails, phone numbers, links, and note and task bodies are sealed before they reach the database.
+
+3. **Grant a reader.** Sealed fields open only for a user the quorum granted the `crm-reader` role. Grant it to a workspace member by their user id, from the minidauth checkout:
+
+   ```sh
+   DEMO_UID=<twenty user id> ./bootstrap.sh
+   ```
+
+   Revoke it in minidauth and their reads go dark, with no change to Twenty.
+<!-- minidauth-run:end -->
+
 <h2 align="center">The #1 Open-Source CRM</h2>
 
 <p align="center"><a href="https://twenty.com"><img src="./packages/twenty-website/public/images/readme/globe-icon.svg" width="12" height="12"/> Website</a> · <a href="https://docs.twenty.com"><img src="./packages/twenty-website/public/images/readme/book-icon.svg" width="12" height="12"/> Documentation</a> · <a href="https://github.com/orgs/twentyhq/projects/1"><img src="./packages/twenty-website/public/images/readme/map-icon.svg" width="12" height="12"/> Roadmap </a> · <a href="https://discord.gg/cx5n4Jzs57"><img src="./packages/twenty-website/public/images/readme/discord-icon.svg" width="12" height="12"/> Discord</a> · <a href="https://www.figma.com/file/xt8O9mFeLl46C5InWwoMrN/Twenty"><img src="./packages/twenty-website/public/images/readme/figma-icon.webp"  width="12" height="12"/>  Figma</a></p>
